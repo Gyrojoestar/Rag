@@ -5,6 +5,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 
 from backend.database.conn import insert_document_with_hybrid_tokens
+import json
 
 
 vectorizer = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
@@ -41,28 +42,36 @@ def extract_pdf_text(pdf_path: Path) -> str:
 
 
 def process_pdf_for_storage(
-    pdf_path: Path,
-    announcement_ref: str | None = None,
-    title: str | None = None,
-    company_name: str = "Unknown Entity",
-):
-    announcement_ref = announcement_ref or pdf_path.stem
-    title = title or pdf_path.stem
-
+    pdf_path: Path
+    ):
+    # Extract text from PDF
     document_text = extract_pdf_text(pdf_path)
     chunks = chunker.split_text(document_text)
-    if not chunks:
-        return
+    #extract metadata from json file with the same name as the pdf file
+    metadata_path = pdf_path.with_suffix(".json")
+    if metadata_path.exists():
+        with metadata_path.open("r") as f:
+            metadata = json.load(f)
+    else:
+        metadata = {
+            "title": pdf_path.stem,
+            "company_name": "Unknown Company",
+            "broadcast_datetime": None,
+            "submitted_by": "Unknown Submitter",
+            "designation": "Unknown Designation"
+        }
 
-    embeddings = vectorizer.encode(chunks)
     insert_document_with_hybrid_tokens(
-        announcement_ref=announcement_ref,
-        title=title,
-        company_name=company_name,
+        announcement_ref=pdf_path.stem,
+        title=metadata["title"],
+        company_name=metadata["company_name"],
+        broadcast_datetime=metadata["broadcast_datetime"],
+        submitted_by=metadata["submitted_by"],
+        designation=metadata["designation"],
         chunks=chunks,
-        embeddings=embeddings,
+        embeddings=[vectorizer.encode(chunk) for chunk in chunks]
     )
-
+    
 
 if __name__ == "__main__":
     target_dir = Path(__file__).resolve().parent / "data"
