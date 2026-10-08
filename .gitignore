@@ -1,3 +1,7 @@
 .env
 /.vscode
 /.venv
+/data
+/*.pyc
+/__pycache__/
+/config
