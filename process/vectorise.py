@@ -56,7 +56,7 @@ def process_pdf_for_storage(
         metadata = {
             "title": pdf_path.stem,
             "company_name": "Unknown Company",
-            "broadcast_datetime": None,
+            "broadcast_datetime": "1970-01-01T00:00:00Z",
             "submitted_by": "Unknown Submitter",
             "designation": "Unknown Designation"
         }

@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS doc_artifacts (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    announcement_ref VARCHAR(64) UNIQUE NOT NULL,
    title TEXT NOT NULL,
-   broadcast_datetime TIMESTAMP WITH TIME ZONE,
+   broadcast_datetime TIMESTAMP WITH TIME ZONE NOT NULL,
    company_name VARCHAR(255),
    submitted_by VARCHAR(255),
    designation VARCHAR(255)
