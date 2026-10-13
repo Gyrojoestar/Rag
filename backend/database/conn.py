@@ -43,29 +43,32 @@ def insert_document_with_hybrid_tokens(
                 :company,
                 :submitted_by,
                 :designation
-            );
+            )
             ON CONFLICT (announcement_ref) DO UPDATE 
-            SET title = EXCLUDED.title;
+            SET title = EXCLUDED.title
+            RETURNING id;
         """)
-        session.execute(insert_artifact_sql, {
+        
+        returned = session.execute(insert_artifact_sql, {
             "id": artifact_id,
             "ref": announcement_ref,
             "title": title,
-            "broadcast_datetime": broadcast_datetime,  # Replace with actual broadcast datetime if available
+            "broadcast_datetime": broadcast_datetime,
             "company": company_name,
-            "submitted_by": submitted_by,  # Replace with actual submitted by if available
-            "designation": designation,  # Replace with actual designation if available
+            "submitted_by": submitted_by,
+            "designation": designation,
         })
-
-        # Step B: Insert Chunks (Embedding + Automatic BM25 tsvector)
+        
+        returned_id = returned.fetchone()[0]
+        # Insert Chunks
         insert_chunk_sql = text("""
             INSERT INTO documents (artifact_id, chunk, embedding)
-            VALUES (:artifact_id, :chunk, :embedding::vector);
+            VALUES (:artifact_id, :chunk, CAST(:embedding AS vector));
         """)
 
         for chunk, emb in zip(chunks, embeddings):
             session.execute(insert_chunk_sql, {
-                "artifact_id": artifact_id,
+                "artifact_id": returned_id,
                 "chunk": chunk,
                 "embedding": str(emb.tolist())
             })
