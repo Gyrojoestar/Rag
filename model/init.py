@@ -1,7 +1,7 @@
 from typing import Annotated, List, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
-from langchain_core.tools import tool  # Fixed: imported from langchain_core
+from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -29,45 +29,65 @@ class AgentState(TypedDict):
 
 # ------ Tools ------
 @tool
-def vector_search(query: str, top_k: int = 5) -> str:
-    query_vector = vectorizer.encode(query, normalize_embeddings=True).tolist()
-    query_vector_str = str(query_vector)
+def hybrid_search(query: str, top_k: int = 5) -> str:
+    """Searches announcement documents using both semantic (dense) and keyword (sparse) search.
 
-    search_sql = text("""
-        SELECT 
-            d.chunk,
-            a.company_name,
-            a.title,
-            a.broadcast_datetime,
-            1 - (d.embedding <=> CAST(:query_embedding AS vector)) AS similarity_score
+    Args:
+        query: The user's question or search phrase.
+        top_k: How many chunks to return.
+    """
+    # Dense search: find chunks whose meaning is closest to the query
+    query_vector = vectorizer.encode(query, normalize_embeddings=True).tolist()
+    dense_sql = text("""
+        SELECT d.id, d.chunk, a.company_name, a.title, a.broadcast_datetime
         FROM documents d
         JOIN doc_artifacts a ON d.artifact_id = a.id
-        ORDER BY d.embedding <=> CAST(:query_embedding AS vector) ASC
-        LIMIT :top_k;
+        ORDER BY d.embedding <=> CAST(:emb AS vector)
+        LIMIT 20;
     """)
 
-    results = []
+    # Sparse search: find chunks that contain the query's keywords
+    sparse_sql = text("""
+        SELECT d.id, d.chunk, a.company_name, a.title, a.broadcast_datetime
+        FROM documents d
+        JOIN doc_artifacts a ON d.artifact_id = a.id
+        WHERE d.tsv_content @@ plainto_tsquery('english', :q)
+        ORDER BY ts_rank(d.tsv_content, plainto_tsquery('english', :q)) DESC
+        LIMIT 20;
+    """)
+
     with Session(engine) as session:
-        rows = session.execute(
-            search_sql,
-            {"query_embedding": query_vector_str, "top_k": top_k}
-        ).fetchall()
+        dense_rows = session.execute(dense_sql, {"emb": str(query_vector)}).fetchall()
+        sparse_rows = session.execute(sparse_sql, {"q": query}).fetchall()
 
-        for row in rows:
-            chunk_text = row[0]
-            company_name = row[1]
-            title = row[2]
-            broadcast_datetime = row[3]
-            score = row[4]
+    # Reciprocal Rank Fusion: combine the two ranked lists into one score per chunk
+    scores = {}
+    rows_by_id = {}
 
-            formatted_chunk = (
-                f"Company: {company_name}\n"
-                f"Title: {title}\n"
-                f"Date: {broadcast_datetime}\n"
-                f"Similarity: {score:.4f}\n"
-                f"Content: {chunk_text}"
-            )
-            results.append(formatted_chunk)
+    for rank, row in enumerate(dense_rows):
+        chunk_id = row[0]
+        rows_by_id[chunk_id] = row
+        scores[chunk_id] = scores.get(chunk_id, 0) + 1 / (60 + rank + 1)
+
+    for rank, row in enumerate(sparse_rows):
+        chunk_id = row[0]
+        rows_by_id[chunk_id] = row
+        scores[chunk_id] = scores.get(chunk_id, 0) + 1 / (60 + rank + 1)
+
+    # Sort chunk ids by combined score, highest first
+    sorted_ids = sorted(scores, key=scores.get, reverse=True)
+
+    # Format the top results the same way as before
+    results = []
+    for chunk_id in sorted_ids[:top_k]:
+        row = rows_by_id[chunk_id]
+        formatted_chunk = (
+            f"Company: {row[2]}\n"
+            f"Title: {row[3]}\n"
+            f"Date: {row[4]}\n"
+            f"Content: {row[1]}"
+        )
+        results.append(formatted_chunk)
 
     if not results:
         return "No relevant document chunks found."
@@ -118,7 +138,7 @@ def sql_query(query_type: str, filter_value: str = "") -> str:
             return "Invalid query_type specified."
 
 
-tools = [vector_search, sql_query]
+tools = [hybrid_search, sql_query]
 
 # ------ LLM ------
 llm = ChatOllama(model=LLM_MODEL, temperature=0, verbose=True)

@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS documents (
    chunk TEXT NOT NULL,
    embedding vector(384) NOT NULL,
    artifact_id UUID NOT NULL REFERENCES doc_artifacts(id) ON DELETE CASCADE
+   tsv_content tsvector GENERATED ALWAYS AS (to_tsvector('english', chunk)) STORED
 );
 CREATE INDEX IF NOT EXISTS idx_documents_embedding_hnsw
 ON documents
