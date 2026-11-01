@@ -46,19 +46,33 @@ def hybrid_search(query: str, top_k: int = 5) -> str:
         LIMIT 20;
     """)
 
-    # Sparse search: find chunks that contain the query's keywords
+    # Build an OR query from the words in the question
+    words = query.split()
+    clean_words = []
+    for word in words:
+        # Keep only letters and numbers so the query syntax can't break
+        clean_word = ""
+        for character in word:
+            if character.isalnum():
+                clean_word = clean_word + character
+        if clean_word:
+            clean_words.append(clean_word)
+
+    or_query = " | ".join(clean_words)
+
     sparse_sql = text("""
         SELECT d.id, d.chunk, a.company_name, a.title, a.broadcast_datetime
         FROM documents d
         JOIN doc_artifacts a ON d.artifact_id = a.id
-        WHERE d.tsv_content @@ plainto_tsquery('english', :q)
-        ORDER BY ts_rank(d.tsv_content, plainto_tsquery('english', :q)) DESC
+        WHERE d.tsv_content @@ to_tsquery('english', :q)
+        ORDER BY ts_rank(d.tsv_content, to_tsquery('english', :q)) DESC
         LIMIT 20;
     """)
 
     with Session(engine) as session:
         dense_rows = session.execute(dense_sql, {"emb": str(query_vector)}).fetchall()
-        sparse_rows = session.execute(sparse_sql, {"q": query}).fetchall()
+        if or_query:
+            sparse_rows = session.execute(sparse_sql, {"q": query}).fetchall()
 
     # Reciprocal Rank Fusion: combine the two ranked lists into one score per chunk
     scores = {}
@@ -283,4 +297,4 @@ workflow.add_conditional_edges(
 workflow.add_edge("synthesis", END)
 
 # Compile Application
-app = workflow.compile()
+app = workflow.compile().with_config({"recursion_limit": 15})
