@@ -24,10 +24,8 @@ def insert_document_with_hybrid_tokens(
 ):
     with Session(engine) as session:
         # Step A: Insert Parent Artifact
-        artifact_id = str(uuid.uuid4())
         insert_artifact_sql = text("""
             INSERT INTO doc_artifacts (
-                id,
                 announcement_ref,
                 title,
                 broadcast_datetime,
@@ -36,7 +34,6 @@ def insert_document_with_hybrid_tokens(
                 designation
             )
             VALUES (
-                :id,
                 :ref,
                 :title,
                 :broadcast_datetime,
@@ -50,7 +47,6 @@ def insert_document_with_hybrid_tokens(
         """)
         
         returned = session.execute(insert_artifact_sql, {
-            "id": artifact_id,
             "ref": announcement_ref,
             "title": title,
             "broadcast_datetime": broadcast_datetime,
@@ -60,6 +56,14 @@ def insert_document_with_hybrid_tokens(
         })
         
         returned_id = returned.fetchone()[0]
+        
+        # Delete old chunks before inserting new ones to avoid duplicates
+        delete_old_chunks_sql = text("""
+            DELETE FROM documents WHERE artifact_id = :artifact_id;
+        """)
+        
+        session.execute(delete_old_chunks_sql, {"artifact_id": returned_id})
+        
         # Insert Chunks
         insert_chunk_sql = text("""
             INSERT INTO documents (artifact_id, chunk, embedding)
