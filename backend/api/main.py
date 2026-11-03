@@ -2,24 +2,44 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
+import hashlib
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
-from backend.database.conn import insert_document_with_hybrid_tokens
+from backend.database.conn import insert_document_with_hybrid_tokens, find_ref_by_hash
 from model.init import app as rag_graph
 from model.init import vectorizer
-from process.vectorise import PDF_DIRECTORY, chunker, extract_pdf_text
+from process.vectorise import PDF_DIRECTORY, chunker, extract_pdf_text, remove_duplicate_chunks
 
 api = FastAPI(title="RAG Announcements API")
 
 # Simple in-memory record of background jobs
 # job_id: "queued" / "processing" / "done" / "failed: ..."
 jobs = {}
+# Maximum lengths that match the columns in init.sql
+MAX_REF_LENGTH = 64
+MAX_COMPANY_LENGTH = 255
+MAX_FILE_SIZE_BYTES = 400 * 1024 * 1024  # 400 MB
 
 
+def validate_upload_fields(announcement_ref: str, company_name: str, file_bytes: bytes) -> None:
+    """Check the inputs BEFORE saving the file, so the user gets an instant error."""
+    if len(announcement_ref) > MAX_REF_LENGTH:
+        raise HTTPException(status_code=400, detail="announcement_ref is too long")
+
+    if len(company_name) > MAX_COMPANY_LENGTH:
+        raise HTTPException(status_code=400, detail="company_name is too long")
+
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="File is too large")
+
+    # Real PDFs start with these 5 bytes, so this catches renamed non-PDF files
+    if not file_bytes.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="File is not a valid PDF")
+    
 # Ingest new pdf files
 def ingest_pdf(job_id: str, pdf_path: Path, metadata: dict) -> None:
     """Runs in the background: read PDF -> chunk -> embed -> store in Postgres."""
@@ -39,6 +59,9 @@ def ingest_pdf(job_id: str, pdf_path: Path, metadata: dict) -> None:
         # Turn each chunk into a vector
         embeddings = vectorizer.encode(chunks, batch_size=32, normalize_embeddings=True)
 
+        # Remove duplicate chunks and embeddings
+        chunks, embeddings = remove_duplicate_chunks(chunks, embeddings)
+        
         # Save everything to the vector database
         insert_document_with_hybrid_tokens(
             announcement_ref=metadata["announcement_ref"],
@@ -86,6 +109,18 @@ async def upload_pdf(
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     file_bytes = await file.read()
+    validate_upload_fields(announcement_ref, company_name, file_bytes)
+    # Fingerprint of the file: identical files always give the same hash
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    existing_ref = find_ref_by_hash(content_hash)
+
+    # Same file already stored under a DIFFERENT announcement_ref
+    if existing_ref is not None and existing_ref != announcement_ref:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This PDF was already uploaded as {existing_ref}",
+        )
     save_path.write_bytes(file_bytes)
 
     # Bundle the metadata into one dictionary
@@ -96,6 +131,7 @@ async def upload_pdf(
         "broadcast_datetime": parsed_datetime,
         "submitted_by": submitted_by,
         "designation": designation,
+        "content_hash": content_hash,
     }
 
     # Schedule the slow work to run AFTER we send the response

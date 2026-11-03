@@ -33,11 +33,45 @@ chunker = RecursiveCharacterTextSplitter(
     ],
 )
 
+# Drop repeated chunks inside one document
+def remove_duplicate_chunks(chunks: list[str], embeddings) -> tuple:
+    """Keep only the first copy of each chunk, ignoring case and extra whitespace."""
+    seen_texts = set()
+    unique_chunks = []
+    unique_embeddings = []
+
+    for index in range(len(chunks)):
+        chunk = chunks[index]
+
+        # Normalise so not case sensitive and ignore extra whitespace
+        normalised_text = " ".join(chunk.lower().split())
+
+        if normalised_text in seen_texts:
+            continue  # already stored this one, skip it
+
+        seen_texts.add(normalised_text)
+        unique_chunks.append(chunk)
+        unique_embeddings.append(embeddings[index])
+
+    return unique_chunks, unique_embeddings
 
 def extract_pdf_text(pdf_path: Path) -> str:
     with pdf_path.open("rb") as file:
         pdf_reader = PyPDF2.PdfReader(file)
-        return "".join(page.extract_text() or "" for page in pdf_reader.pages)
+
+        # Encrypted PDFs can't be read without a password
+        if pdf_reader.is_encrypted:
+            raise ValueError("PDF is encrypted")
+
+        page_texts = []
+        for page in pdf_reader.pages:
+            page_text = page.extract_text() or ""
+            # Postgres can't store NUL characters, so remove them
+            page_text = page_text.replace("\x00", "")
+            page_texts.append(page_text)
+
+        # Join with a newline so words from different pages don't merge
+        return "\n".join(page_texts)
 
 
 def load_metadata_index(metadata_path: Path) -> dict:
@@ -89,6 +123,7 @@ def process_pdf_for_storage(pdf_path: Path, metadata_by_pdf: dict) -> None:
 
     chunks = chunker.split_text(document_text)
     embeddings = vectorizer.encode(chunks, batch_size=32, normalize_embeddings=True)
+    chunks, embeddings = remove_duplicate_chunks(chunks, embeddings)
 
     insert_document_with_hybrid_tokens(
         announcement_ref=announcement_ref,

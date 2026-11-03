@@ -23,7 +23,7 @@ def insert_document_with_hybrid_tokens(
     embeddings: list
 ):
     with Session(engine) as session:
-        # Step A: Insert Parent Artifact
+        # Insert Parent Artifact
         insert_artifact_sql = text("""
             INSERT INTO doc_artifacts (
                 announcement_ref,
@@ -79,3 +79,14 @@ def insert_document_with_hybrid_tokens(
             
         session.commit()
         print(f"Successfully inserted {len(chunks)} chunks for {announcement_ref}.")
+
+def find_ref_by_hash(content_hash: str):
+    """Return the announcement_ref that already has this file hash, or None."""
+    with Session(engine) as session:
+        sql = text("SELECT announcement_ref FROM doc_artifacts WHERE content_hash = :hash")
+        row = session.execute(sql, {"hash": content_hash}).fetchone()
+
+        # No row means we have never seen this exact file
+        if row is None:
+            return None
+        return row[0]
