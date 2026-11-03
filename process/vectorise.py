@@ -8,6 +8,8 @@ from sentence_transformers import SentenceTransformer
 
 from backend.database.conn import insert_document_with_hybrid_tokens
 
+import hashlib
+
 vectorizer = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 METADATA_PATH = PROJECT_ROOT / "config" / "blue_chips.json"
@@ -125,6 +127,8 @@ def process_pdf_for_storage(pdf_path: Path, metadata_by_pdf: dict) -> None:
     embeddings = vectorizer.encode(chunks, batch_size=32, normalize_embeddings=True)
     chunks, embeddings = remove_duplicate_chunks(chunks, embeddings)
 
+    content_hash = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
+
     insert_document_with_hybrid_tokens(
         announcement_ref=announcement_ref,
         title=title,
@@ -132,6 +136,7 @@ def process_pdf_for_storage(pdf_path: Path, metadata_by_pdf: dict) -> None:
         broadcast_datetime=broadcast_datetime,
         submitted_by=submitted_by,
         designation=designation,
+        content_hash=content_hash,
         chunks=chunks,
         embeddings=embeddings,
     )

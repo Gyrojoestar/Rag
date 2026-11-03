@@ -19,6 +19,7 @@ def insert_document_with_hybrid_tokens(
     broadcast_datetime: datetime,
     submitted_by: str,
     designation: str,
+    content_hash: str,
     chunks: list[str],
     embeddings: list
 ):
@@ -31,7 +32,8 @@ def insert_document_with_hybrid_tokens(
                 broadcast_datetime,
                 company_name,
                 submitted_by,
-                designation
+                designation,
+                content_hash
             )
             VALUES (
                 :ref,
@@ -39,10 +41,12 @@ def insert_document_with_hybrid_tokens(
                 :broadcast_datetime,
                 :company,
                 :submitted_by,
-                :designation
+                :designation,
+                :content_hash
             )
             ON CONFLICT (announcement_ref) DO UPDATE 
-            SET title = EXCLUDED.title
+            SET title = EXCLUDED.title,
+                content_hash = EXCLUDED.content_hash
             RETURNING id;
         """)
         
@@ -53,6 +57,7 @@ def insert_document_with_hybrid_tokens(
             "company": company_name,
             "submitted_by": submitted_by,
             "designation": designation,
+            "content_hash": content_hash
         })
         
         returned_id = returned.fetchone()[0]

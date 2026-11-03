@@ -6,6 +6,7 @@ from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
 from sentence_transformers import CrossEncoder, SentenceTransformer
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -14,6 +15,7 @@ from backend.database.conn import engine
 
 LLM_MODEL = "qwen2.5:7b"
 RERANKER_MODEL = "BAAI/bge-reranker-base"
+checkpointer = MemorySaver()
 
 reranker = CrossEncoder(RERANKER_MODEL)
 vectorizer = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
@@ -300,4 +302,4 @@ workflow.add_conditional_edges(
 workflow.add_edge("synthesis", END)
 
 # Compile Application
-app = workflow.compile().with_config({"recursion_limit": 15})
+app = workflow.compile(checkpointer=checkpointer).with_config({"recursion_limit": 15})

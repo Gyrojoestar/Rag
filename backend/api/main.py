@@ -14,7 +14,17 @@ from model.init import app as rag_graph
 from model.init import vectorizer
 from process.vectorise import PDF_DIRECTORY, chunker, extract_pdf_text, remove_duplicate_chunks
 
+from fastapi.middleware.cors import CORSMiddleware
+
 api = FastAPI(title="RAG Announcements API")
+
+# Allow the frontend's address to call this API
+api.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Simple in-memory record of background jobs
 # job_id: "queued" / "processing" / "done" / "failed: ..."
@@ -70,6 +80,7 @@ def ingest_pdf(job_id: str, pdf_path: Path, metadata: dict) -> None:
             broadcast_datetime=metadata["broadcast_datetime"],
             submitted_by=metadata["submitted_by"],
             designation=metadata["designation"],
+            content_hash=metadata["content_hash"],
             chunks=chunks,
             embeddings=embeddings,
         )
@@ -152,14 +163,19 @@ async def check_upload_status(job_id: str):
 # Streaming chat with Server-Sent Events (SSE)
 class ChatRequest(BaseModel):
     question: str
+    thread_id: str # unique identifier for each new conversation
 
 
-async def sse_token_generator(question: str):
+async def sse_token_generator(question: str, thread_id: str):
     """Runs the LangGraph workflow and yields each LLM token as an SSE message."""
-    inputs = {"messages": [HumanMessage(content=question)]}
+    inputs = {"messages": [HumanMessage(content=question)],
+            "contexts": [],
+            "reranked_contexts": [],
+            "is_grounded": False,}
 
     # recursion_limit stops the groundedness -> router loop from running forever
-    config = {"recursion_limit": 15}
+    config = {"recursion_limit": 15,
+              "configurable": {"thread_id": thread_id},}
 
     try:
         # stream_mode="messages" gives us (token_chunk, metadata) as the LLM generates
