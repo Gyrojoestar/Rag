@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Announcements assistant</title>
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --surface: #ffffff;
+    --text: #1b2430;
+    --muted: #667085;
+    --line: #d9dee6;
+    --accent: #1f4fd8;
+    --accent-text: #ffffff;
+    --user-bubble: #e6ecfb;
+    --error: #b42318;
+    --ok: #067647;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c;
+      --surface: #1a2029;
+      --text: #e7ebf1;
+      --muted: #9aa5b5;
+      --line: #2c3541;
+      --accent: #6b93ff;
+      --accent-text: #0c1220;
+      --user-bubble: #223052;
+      --error: #ff8a80;
+      --ok: #5fd6a0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 16px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 0 8px;
+  }
+  h1 { font-size: 1.15rem; margin: 0; }
+  nav { display: flex; gap: 4px; }
+  nav button {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font: inherit;
+  }
+  nav button.active {
+    color: var(--text);
+    border-color: var(--line);
+    background: var(--surface);
+  }
+  button:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  section { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  section.active { display: flex; }
+
+  /* ---- chat ---- */
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .empty { color: var(--muted); margin: auto; text-align: center; }
+  .msg {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); }
+  .msg.bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); }
+  .msg.error { color: var(--error); }
+  .msg.status { color: var(--muted); font-style: italic; }
+  #chat-form { display: flex; gap: 8px; padding: 12px 0 16px; }
+  #chat-input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+  }
+  .primary {
+    background: var(--accent);
+    color: var(--accent-text);
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .link-button {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; font: inherit; text-decoration: underline;
+  }
+
+  /* ---- upload ---- */
+  #upload-form { display: grid; gap: 12px; padding: 12px 0 24px; overflow-y: auto; }
+  label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
+  label input {
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+  }
+  #upload-status { min-height: 1.5em; }
+  #upload-status.error { color: var(--error); }
+  #upload-status.ok { color: var(--ok); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Announcements assistant</h1>
+  <nav>
+    <button id="tab-chat" class="active" type="button">Chat</button>
+    <button id="tab-upload" type="button">Upload PDF</button>
+  </nav>
+</header>
+
+<!-- Chat tab -->
+<section id="chat-section" class="active">
+  <div id="messages">
+    <div class="empty" id="empty-note">Ask a question about the uploaded announcements.</div>
+  </div>
+  <form id="chat-form">
+    <input id="chat-input" type="text" placeholder="Ask about an announcement" autocomplete="off">
+    <button id="send-button" class="primary" type="submit">Send</button>
+  </form>
+  <div style="text-align:center; padding-bottom: 12px;">
+    <button id="new-chat" class="link-button" type="button">Start a new conversation</button>
+  </div>
+</section>
+
+<!-- Upload tab -->
+<section id="upload-section">
+  <form id="upload-form">
+    <label>PDF file
+      <input id="f-file" type="file" accept="application/pdf" required>
+    </label>
+    <label>Announcement reference
+      <input id="f-ref" type="text" maxlength="64" required>
+    </label>
+    <label>Title
+      <input id="f-title" type="text" required>
+    </label>
+    <label>Company name
+      <input id="f-company" type="text" maxlength="255" required>
+    </label>
+    <label>Broadcast date and time
+      <input id="f-datetime" type="datetime-local" required>
+    </label>
+    <label>Submitted by
+      <input id="f-submitted" type="text" maxlength="255" required>
+    </label>
+    <label>Designation
+      <input id="f-designation" type="text" maxlength="255" required>
+    </label>
+    <button id="upload-button" class="primary" type="submit">Upload</button>
+    <div id="upload-status" role="status"></div>
+  </form>
+</section>
+
+<script>
+  // Change this if your API runs somewhere else
+  var API_URL = "http://localhost:8000";
+
+  // One id per conversation. The backend uses it to remember earlier messages.
+  var threadId = crypto.randomUUID();
+
+  // ---------- Page elements ----------
+  var tabChat = document.getElementById("tab-chat");
+  var tabUpload = document.getElementById("tab-upload");
+  var chatSection = document.getElementById("chat-section");
+  var uploadSection = document.getElementById("upload-section");
+
+  var messagesBox = document.getElementById("messages");
+  var emptyNote = document.getElementById("empty-note");
+  var chatForm = document.getElementById("chat-form");
+  var chatInput = document.getElementById("chat-input");
+  var sendButton = document.getElementById("send-button");
+  var newChatButton = document.getElementById("new-chat");
+
+  var uploadForm = document.getElementById("upload-form");
+  var uploadButton = document.getElementById("upload-button");
+  var uploadStatus = document.getElementById("upload-status");
+
+  // ---------- Tabs ----------
+  function showTab(name) {
+    if (name === "chat") {
+      chatSection.classList.add("active");
+      uploadSection.classList.remove("active");
+      tabChat.classList.add("active");
+      tabUpload.classList.remove("active");
+    } else {
+      uploadSection.classList.add("active");
+      chatSection.classList.remove("active");
+      tabUpload.classList.add("active");
+      tabChat.classList.remove("active");
+    }
+  }
+  tabChat.addEventListener("click", function () { showTab("chat"); });
+  tabUpload.addEventListener("click", function () { showTab("upload"); });
+
+  // ---------- Chat helpers ----------
+  // Create a message bubble and add it to the page
+  function addMessage(role, text) {
+    if (emptyNote) {
+      emptyNote.remove();
+      emptyNote = null;
+    }
+    var bubble = document.createElement("div");
+    bubble.className = "msg " + role;
+    // textContent (not innerHTML) so the model's output can never inject HTML
+    bubble.textContent = text;
+    messagesBox.appendChild(bubble);
+    messagesBox.scrollTop = messagesBox.scrollHeight;
+    return bubble;
+  }
+
+  // Send a question and show the answer as it streams in
+  async function askQuestion(question) {
+    addMessage("user", question);
+
+    // Empty bubble that we fill token by token
+    var answerBubble = addMessage("bot status", "Searching announcements...");
+    var gotFirstToken = false;
+
+    var response;
+    try {
+      response = await fetch(API_URL + "/chat/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: question, thread_id: threadId })
+      });
+    } catch (err) {
+      answerBubble.className = "msg bot error";
+      answerBubble.textContent = "Could not reach the server. Is the API running on " + API_URL + "?";
+      return;
+    }
+
+    if (!response.ok) {
+      answerBubble.className = "msg bot error";
+      answerBubble.textContent = "Server error (" + response.status + ").";
+      return;
+    }
+
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = "";
+    var finished = false;
+
+    while (!finished) {
+      var result = await reader.read();
+      if (result.done) {
+        break;
+      }
+
+      // Bytes -> text, then add to the buffer
+      buffer = buffer + decoder.decode(result.value, { stream: true });
+
+      // Complete messages end with a blank line
+      var parts = buffer.split("\n\n");
+      // The last part may be incomplete, so keep it for the next round
+      buffer = parts.pop();
+
+      for (var i = 0; i < parts.length; i++) {
+        var data = parts[i].replace("data: ", "");
+
+        if (data === "[DONE]") {
+          finished = true;
+          break;
+        }
+
+        var parsed = JSON.parse(data);
+
+        if (parsed.error) {
+          answerBubble.className = "msg bot error";
+          answerBubble.textContent = parsed.error;
+          finished = true;
+          break;
+        }
+
+        // First real token: clear the "Searching..." text
+        if (!gotFirstToken) {
+          gotFirstToken = true;
+          answerBubble.className = "msg bot";
+          answerBubble.textContent = "";
+        }
+        answerBubble.textContent = answerBubble.textContent + parsed.token;
+        messagesBox.scrollTop = messagesBox.scrollHeight;
+      }
+    }
+
+    // Stream ended without any tokens and without an error message
+    if (!gotFirstToken && answerBubble.className === "msg bot status") {
+      answerBubble.className = "msg bot error";
+      answerBubble.textContent = "No answer was returned.";
+    }
+  }
+
+  chatForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var question = chatInput.value.trim();
+    if (question === "") {
+      return;
+    }
+    chatInput.value = "";
+    sendButton.disabled = true;   // one question at a time
+    await askQuestion(question);
+    sendButton.disabled = false;
+    chatInput.focus();
+  });
+
+  // A new thread id means the backend starts a fresh conversation
+  newChatButton.addEventListener("click", function () {
+    threadId = crypto.randomUUID();
+    messagesBox.innerHTML = "";
+    var note = document.createElement("div");
+    note.className = "empty";
+    note.id = "empty-note";
+    note.textContent = "Ask a question about the uploaded announcements.";
+    messagesBox.appendChild(note);
+    emptyNote = note;
+  });
+
+  // ---------- Upload ----------
+  function setUploadStatus(text, kind) {
+    uploadStatus.textContent = text;
+    uploadStatus.className = kind;   // "", "error" or "ok"
+  }
+
+  // Pause for a number of milliseconds
+  function sleep(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  // FastAPI sends errors as {detail: "..."} (or a list for validation errors)
+  function readErrorDetail(body) {
+    if (body && typeof body.detail === "string") {
+      return body.detail;
+    }
+    return "Upload failed. Check the fields and try again.";
+  }
+
+  // Ask the server for the job status every 2 seconds until it finishes
+  async function waitForJob(jobId) {
+    while (true) {
+      var response = await fetch(API_URL + "/upload/" + jobId);
+      var body = await response.json();
+
+      if (!response.ok) {
+        return "failed: " + readErrorDetail(body);
+      }
+      if (body.status === "done" || body.status.indexOf("failed") === 0) {
+        return body.status;
+      }
+      setUploadStatus("Processing (" + body.status + ")...", "");
+      await sleep(2000);
+    }
+  }
+
+  uploadForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    uploadButton.disabled = true;
+    setUploadStatus("Uploading...", "");
+
+    var fileInput = document.getElementById("f-file");
+
+    // The date picker has no timezone, so convert it to a full ISO string
+    var pickedDate = new Date(document.getElementById("f-datetime").value);
+
+    // FormData sends the file and text fields as a multipart form
+    var formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    formData.append("announcement_ref", document.getElementById("f-ref").value.trim());
+    formData.append("title", document.getElementById("f-title").value.trim());
+    formData.append("company_name", document.getElementById("f-company").value.trim());
+    formData.append("broadcast_datetime", pickedDate.toISOString());
+    formData.append("submitted_by", document.getElementById("f-submitted").value.trim());
+    formData.append("designation", document.getElementById("f-designation").value.trim());
+
+    try {
+      // Do not set Content-Type here: the browser adds it with the right boundary
+      var response = await fetch(API_URL + "/upload", {
+        method: "POST",
+        body: formData
+      });
+      var body = await response.json();
+
+      if (!response.ok) {
+        setUploadStatus(readErrorDetail(body), "error");
+      } else {
+        var finalStatus = await waitForJob(body.job_id);
+        if (finalStatus === "done") {
+          setUploadStatus("Uploaded and indexed. You can ask questions about it now.", "ok");
+          uploadForm.reset();
+        } else {
+          setUploadStatus(finalStatus, "error");
+        }
+      }
+    } catch (err) {
+      setUploadStatus("Could not reach the server. Is the API running on " + API_URL + "?", "error");
+    }
+
+    uploadButton.disabled = false;
+  });
+</script>
+</body>
+</html>
