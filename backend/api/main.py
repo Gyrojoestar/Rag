@@ -15,6 +15,7 @@ from model.init import vectorizer
 from process.vectorise import PDF_DIRECTORY, chunker, extract_pdf_text, remove_duplicate_chunks
 
 from fastapi.middleware.cors import CORSMiddleware
+from langgraph.errors import GraphRecursionError
 
 api = FastAPI(title="RAG Announcements API")
 
@@ -194,6 +195,11 @@ async def sse_token_generator(question: str, thread_id: str):
             # SSE format is "data: <text>\n\n". JSON keeps newlines in tokens safe.
             payload = json.dumps({"token": token})
             yield f"data: {payload}\n\n"
+    
+    except GraphRecursionError:
+        friendly_message = "I couldn't find enough information in the announcements to answer that."
+        error_payload = json.dumps({"error": friendly_message})
+        yield f"data: {error_payload}\n\n"
 
     except Exception as err:
         error_payload = json.dumps({"error": str(err)})
