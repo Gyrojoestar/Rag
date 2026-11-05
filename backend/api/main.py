@@ -212,7 +212,7 @@ async def sse_token_generator(question: str, thread_id: str):
 @api.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     return StreamingResponse(
-        sse_token_generator(request.question),
+        sse_token_generator(request.question, request.thread_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
